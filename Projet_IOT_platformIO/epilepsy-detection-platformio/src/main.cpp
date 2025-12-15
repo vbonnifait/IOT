@@ -66,6 +66,9 @@ uint8_t BITALINO_MAC_ADDRESS[6] = {0x20, 0x17, 0x11, 0x20, 0x49, 0x95};
 #define OVERLAP_PERCENTAGE 50 // 50% overlap
 #define OVERLAP_SIZE (WINDOW_SIZE * OVERLAP_PERCENTAGE / 100)
 
+// Calibration EEG (optionnel - ajuster si signal décalé)
+#define EEG_OFFSET_UV 0.0f    // Offset en microvolts (0 = pas de correction)
+
 // Configuration TensorFlow
 #define TENSOR_ARENA_SIZE 30000 // 30 KB
 #define SEIZURE_THRESHOLD 0.7   // 70% confidence
@@ -103,6 +106,7 @@ bool seizure_detected = false;
 unsigned long seizure_start_time = 0;
 unsigned long last_publish_time = 0;
 unsigned long last_heartbeat_time = 0;
+unsigned long last_sample_time = 0;     // Timestamp du dernier échantillon
 float current_prediction = 0.0f;
 int current_heart_rate = 0; // Optionnel si disponible sur BITalino
 
@@ -155,14 +159,35 @@ bool parseBITalinoFrame(uint8_t *buffer, BITalinoFrame *frame)
 
 void startBITalinoAcquisition()
 {
-    // Configuration BITalino pour 100 Hz avec canal A4 uniquement
-    // Format: {sample_rate_code, channel_mask}
-    // 0x03 = 100 Hz
-    // 0x08 = Canal A4 (bit 3)
-    uint8_t start_cmd[] = {0x03, 0x08}; // START @ 100 Hz, canal A4
+    // PROTOCOLE BITALINO OFFICIEL
+    // Documentation : https://github.com/BITalinoWorld/revolution-python-api
+
+    // Étape 1 : Mettre le BITalino en mode live (idle → acquisition)
+    // Commande : 0x01 (START en mode live)
+    // Canal A4 = bit 3 = 0x08
+    // Format : {0x01, channel_mask}
+
+    Serial.println("⏳ Configuration BITalino...");
+
+    // 1. S'assurer que l'acquisition est arrêtée
+    uint8_t stop_cmd = 0x00;
+    SerialBT.write(&stop_cmd, 1);
+    delay(200);
+
+    // 2. Configurer la fréquence d'échantillonnage
+    // Simulated analog channel (canal A4) : 100 Hz par défaut
+    // Pas besoin de commande spéciale, c'est dans le firmware
+
+    // 3. Démarrer l'acquisition avec canal A4 (0x08)
+    // Format BITalino : START byte (0x01) + channel mask
+    uint8_t start_cmd[] = {0x01, 0x08};  // START + Canal A4
     SerialBT.write(start_cmd, 2);
-    delay(100);
-    Serial.println("✓ Acquisition BITalino démarrée (100 Hz - Canal A4)");
+    delay(200);
+
+    Serial.println("✓ Acquisition BITalino démarrée (Canal A4)");
+    Serial.println("  Mode: Live acquisition");
+    Serial.println("  Canaux: A4 (EEG)");
+    Serial.println("  Format: 3 bytes/trame");
 }
 
 void stopBITalinoAcquisition()
@@ -465,6 +490,9 @@ if (!connected) {
     delay(1000);
     startBITalinoAcquisition();
 
+    // Initialiser le timestamp pour la détection de timeout
+    last_sample_time = millis();
+
     // Initialisation préprocesseur
     preprocessor.begin();
     Serial.println("✓ Préprocesseur EEG BITalino initialisé");
@@ -554,8 +582,19 @@ void loop()
             {
                 int raw_value = frame.analog[0]; // Canal A4 (10 bits: 0-1023)
 
-                // Conversion ADC → Microvolts
+                // Debug : Afficher les premières trames brutes
+                if (samples_processed < 10)
+                {
+                    Serial.printf("🔍 Trame #%lu: [0x%02X 0x%02X 0x%02X] → SEQ:%d, A4:%d\n",
+                                  samples_processed, bt_buffer[0], bt_buffer[1], bt_buffer[2],
+                                  frame.seq, raw_value);
+                }
+
+                // Conversion ADC → Microvolts (mode EEG)
                 float microvolts = preprocessor.convertADCtoMicrovolts(raw_value);
+
+                // Appliquer offset de calibration si nécessaire
+                microvolts += EEG_OFFSET_UV;
 
                 // Ajouter l'échantillon au préprocesseur (retourne true si fenêtre complète)
                 bool window_ready = preprocessor.addSample(raw_value);
@@ -565,6 +604,9 @@ void loop()
 
                 // ✅ PUBLIER CHAQUE ÉCHANTILLON sur MQTT pour Node-RED (100 Hz)
                 publishRawSignal(raw_value, microvolts, filtered);
+
+                // Mettre à jour le timestamp de réception
+                last_sample_time = millis();
 
                 // Log périodique pour suivre l'activité (tous les 50 échantillons = 0.5s)
                 samples_processed++;
@@ -655,8 +697,23 @@ void loop()
         }
     }
 
-    // Publier métriques périodiquement
+    // Détection de timeout : Aucune donnée reçue depuis 3 secondes
     unsigned long now = millis();
+    if (last_sample_time > 0 && (now - last_sample_time) > 3000)
+    {
+        static unsigned long last_warning = 0;
+        if (now - last_warning > 5000)
+        {
+            Serial.println("⚠️  ATTENTION: Aucune donnée BITalino reçue depuis 3 secondes!");
+            Serial.println("   Vérifications :");
+            Serial.println("   1. BITalino est-il allumé ?");
+            Serial.println("   2. Capteur EEG connecté sur canal A4 ?");
+            Serial.println("   3. Commande de start correcte ?");
+            last_warning = now;
+        }
+    }
+
+    // Publier métriques périodiquement
     if (now - last_publish_time >= PUBLISH_INTERVAL_MS)
     {
         publishMetrics();
