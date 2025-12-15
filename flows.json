@@ -1,0 +1,609 @@
+[
+    {
+        "id": "61f2634f4e3380cc",
+        "type": "tab",
+        "label": "Epilepsy Detection Monitor",
+        "disabled": false,
+        "info": "Dashboard de surveillance pour la détection de crises épileptiques\nBITalino EEG + ESP32 + TensorFlow Lite"
+    },
+    {
+        "id": "87e75de774afdd93",
+        "type": "mqtt in",
+        "z": "61f2634f4e3380cc",
+        "name": "Signal EEG Brut",
+        "topic": "epilepsy/raw_eeg",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt_broker",
+        "nl": false,
+        "rap": false,
+        "rh": 0,
+        "inputs": 0,
+        "x": 130,
+        "y": 100,
+        "wires": [
+            [
+                "46d3c1174bab5577"
+            ]
+        ]
+    },
+    {
+        "id": "1367e89b76aa080b",
+        "type": "mqtt in",
+        "z": "61f2634f4e3380cc",
+        "name": "Prediction",
+        "topic": "epilepsy/prediction",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "mqtt_broker",
+        "nl": false,
+        "rap": false,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 200,
+        "wires": [
+            [
+                "cc8bfa09fd958b33"
+            ]
+        ]
+    },
+    {
+        "id": "9304773e66e39fbc",
+        "type": "mqtt in",
+        "z": "61f2634f4e3380cc",
+        "name": "Alert",
+        "topic": "epilepsy/alert",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "mqtt_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 110,
+        "y": 300,
+        "wires": [
+            [
+                "e72144ca86145b0f"
+            ]
+        ]
+    },
+    {
+        "id": "5514b298240da80f",
+        "type": "mqtt in",
+        "z": "61f2634f4e3380cc",
+        "name": "Metrics",
+        "topic": "epilepsy/metrics",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt_broker",
+        "nl": false,
+        "rap": false,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 400,
+        "wires": [
+            [
+                "381359c124a3d83e"
+            ]
+        ]
+    },
+    {
+        "id": "2a197187e61fe715",
+        "type": "mqtt in",
+        "z": "61f2634f4e3380cc",
+        "name": "Status",
+        "topic": "epilepsy/status",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "mqtt_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 110,
+        "y": 500,
+        "wires": [
+            [
+                "9289de70fdf058d9"
+            ]
+        ]
+    },
+    {
+        "id": "46d3c1174bab5577",
+        "type": "function",
+        "z": "61f2634f4e3380cc",
+        "name": "Parse Signal EEG",
+        "func": "// msg.payload contient le JSON MQTT\n// Exemple : { \"timestamp\": 123456, \"raw\": 403, \"microvolts\": -8.75 }\n\nconst data = msg.payload;\n\n// Envoyer uniquement la valeur EEG en microvolts au chart\nmsg.payload = Number(data.microvolts.toFixed(2)); // arrondi à 2 décimales\nmsg.topic = \"EEG (µV)\";\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 100,
+        "wires": [
+            [
+                "7ee95aaef0fa4d6f",
+                "6fec77995487b9bf"
+            ]
+        ]
+    },
+    {
+        "id": "cc8bfa09fd958b33",
+        "type": "function",
+        "z": "61f2634f4e3380cc",
+        "name": "Parse Prediction",
+        "func": "const data = msg.payload;\n\n// Pour la jauge (0-100%)\nmsg.payload = Math.round(data.confidence * 10) / 10;\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 330,
+        "y": 200,
+        "wires": [
+            [
+                "1cbb5890c70050f2",
+                "3f1b9f7439378c35"
+            ]
+        ]
+    },
+    {
+        "id": "e72144ca86145b0f",
+        "type": "function",
+        "z": "61f2634f4e3380cc",
+        "name": "Parse Alert",
+        "func": "const data = msg.payload;\n\nif (data.alert_type === \"SEIZURE_START\") {\n    msg.payload = {\n        type: \"warning\",\n        title: \"⚠️ ALERTE CRISE DÉTECTÉE\",\n        message: \"Crise épileptique détectée par le système\",\n        timestamp: new Date(data.timestamp)\n    };\n} else if (data.alert_type === \"SEIZURE_END\") {\n    msg.payload = {\n        type: \"info\",\n        title: \"✓ Fin de crise\",\n        message: `Durée: ${data.duration}s`,\n        timestamp: new Date(data.timestamp)\n    };\n}\n\nreturn msg;",
+        "outputs": 1,
+        "x": 320,
+        "y": 300,
+        "wires": [
+            [
+                "0aac0ee90718d9fc",
+                "b5559ece466655a0"
+            ]
+        ]
+    },
+    {
+        "id": "381359c124a3d83e",
+        "type": "function",
+        "z": "61f2634f4e3380cc",
+        "name": "Parse Metrics",
+        "func": "const data = msg.payload;\n\nmsg.payload = {\n    uptime: data.uptime,\n    samples: data.total_samples,\n    inferences: data.total_inferences,\n    seizures: data.seizures_detected,\n    free_heap: data.free_heap,\n    wifi_rssi: data.wifi_rssi,\n    bt_connected: true,  // Toujours connecté si on reçoit des données\n    seizure_active: data.seizure_active\n};\n\nreturn msg;",
+        "outputs": 1,
+        "x": 330,
+        "y": 400,
+        "wires": [
+            [
+                "75bc5c6ce1c790e7",
+                "dd7c6de3ccbd3408"
+            ]
+        ]
+    },
+    {
+        "id": "9289de70fdf058d9",
+        "type": "function",
+        "z": "61f2634f4e3380cc",
+        "name": "Parse Status",
+        "func": "const data = msg.payload;\n\nlet statusText = \"\";\nlet statusColor = \"\";\n\nif (data.state === \"online\") {\n    statusText = \"🟢 Système en ligne\";\n    statusColor = \"green\";\n} else if (data.state === \"ready\") {\n    statusText = \"🟢 Système prêt\";\n    statusColor = \"green\";\n} else if (data.state === \"error\") {\n    statusText = \"🔴 Erreur système\";\n    statusColor = \"red\";\n} else {\n    statusText = data.state;\n    statusColor = \"gray\";\n}\n\nmsg.payload = statusText;\nmsg.color = statusColor;\n\nreturn msg;",
+        "outputs": 1,
+        "x": 320,
+        "y": 500,
+        "wires": [
+            [
+                "55eb0ddd1a433843",
+                "475a9b0f27b9cee8"
+            ]
+        ]
+    },
+    {
+        "id": "7ee95aaef0fa4d6f",
+        "type": "ui_chart",
+        "z": "61f2634f4e3380cc",
+        "name": "Signal EEG Temps Réel",
+        "group": "ui_group_charts",
+        "order": 1,
+        "width": "12",
+        "height": "6",
+        "label": "Signal EEG Temps Réel",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "En attente du signal EEG...",
+        "dot": false,
+        "ymin": "-2000",
+        "ymax": "2000",
+        "removeOlder": "10",
+        "removeOlderPoints": "200",
+        "removeOlderUnit": "1",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 590,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "1cbb5890c70050f2",
+        "type": "ui_gauge",
+        "z": "61f2634f4e3380cc",
+        "name": "Probabilité Crise",
+        "group": "ui_group_prediction",
+        "order": 1,
+        "width": "6",
+        "height": "4",
+        "gtype": "gage",
+        "title": "Probabilité Crise",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "30",
+        "seg2": "70",
+        "diff": false,
+        "className": "",
+        "x": 570,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "0aac0ee90718d9fc",
+        "type": "ui_toast",
+        "z": "61f2634f4e3380cc",
+        "position": "top right",
+        "displayTime": "10",
+        "highlight": "",
+        "sendall": true,
+        "outputs": 0,
+        "ok": "OK",
+        "cancel": "",
+        "raw": false,
+        "className": "",
+        "topic": "",
+        "name": "Alertes",
+        "x": 540,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "75bc5c6ce1c790e7",
+        "type": "ui_template",
+        "z": "61f2634f4e3380cc",
+        "group": "ui_group_status",
+        "name": "Métriques Système",
+        "order": 2,
+        "width": "6",
+        "height": "6",
+        "format": "<div style=\"padding: 10px; font-family: Arial;\">\n  <h3 style=\"margin-top: 0;\">📊 Métriques Système</h3>\n  <table style=\"width:100%; border-collapse: collapse;\">\n    <tr style=\"border-bottom: 1px solid #ddd;\">\n      <td style=\"padding: 8px;\"><b>Uptime:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.uptime}}s</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #ddd;\">\n      <td style=\"padding: 8px;\"><b>Échantillons:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.samples}}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #ddd;\">\n      <td style=\"padding: 8px;\"><b>Inférences:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.inferences}}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #ddd;\">\n      <td style=\"padding: 8px;\"><b>Crises détectées:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.seizures}}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #ddd;\">\n      <td style=\"padding: 8px;\"><b>RAM libre:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.free_heap}} bytes</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #ddd;\">\n      <td style=\"padding: 8px;\"><b>WiFi RSSI:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.wifi_rssi}} dBm</td>\n    </tr>\n    <tr>\n      <td style=\"padding: 8px;\"><b>Bluetooth:</b></td>\n      <td style=\"padding: 8px;\">{{msg.payload.bt_connected ? '✓ Connecté' : '❌ Déconnecté'}}</td>\n    </tr>\n  </table>\n</div>",
+        "storeOutMessages": true,
+        "fwdInMessages": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 580,
+        "y": 400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "55eb0ddd1a433843",
+        "type": "ui_text",
+        "z": "61f2634f4e3380cc",
+        "group": "ui_group_status",
+        "order": 1,
+        "width": "6",
+        "height": "1",
+        "name": "État Système",
+        "label": "État",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "style": false,
+        "font": "",
+        "fontSize": 16,
+        "color": "#000000",
+        "x": 550,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "f7e1181d2a2ad5e8",
+        "type": "mqtt out",
+        "z": "61f2634f4e3380cc",
+        "name": "Envoyer Commande",
+        "topic": "epilepsy/command",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker",
+        "x": 570,
+        "y": 620,
+        "wires": []
+    },
+    {
+        "id": "4049b6b78a32e5f8",
+        "type": "ui_button",
+        "z": "61f2634f4e3380cc",
+        "name": "Reset",
+        "group": "ui_group_controls",
+        "order": 1,
+        "width": "4",
+        "height": "1",
+        "passthru": false,
+        "label": "🔄 RESET SYSTÈME",
+        "tooltip": "Réinitialiser le système",
+        "color": "",
+        "bgcolor": "#3399ff",
+        "className": "",
+        "icon": "refresh",
+        "payload": "reset",
+        "payloadType": "str",
+        "topic": "epilepsy/command",
+        "topicType": "str",
+        "x": 310,
+        "y": 600,
+        "wires": [
+            [
+                "f7e1181d2a2ad5e8"
+            ]
+        ]
+    },
+    {
+        "id": "e4bcbd8557e4a206",
+        "type": "ui_button",
+        "z": "61f2634f4e3380cc",
+        "name": "Stop",
+        "group": "ui_group_controls",
+        "order": 2,
+        "width": "4",
+        "height": "1",
+        "passthru": false,
+        "label": "⏸️ ARRÊTER",
+        "tooltip": "Arrêter l'acquisition",
+        "color": "#ffffff",
+        "bgcolor": "#ff6666",
+        "className": "",
+        "icon": "stop",
+        "payload": "stop",
+        "payloadType": "str",
+        "topic": "epilepsy/command",
+        "topicType": "str",
+        "x": 310,
+        "y": 640,
+        "wires": [
+            [
+                "f7e1181d2a2ad5e8"
+            ]
+        ]
+    },
+    {
+        "id": "6153286cef69470f",
+        "type": "ui_button",
+        "z": "61f2634f4e3380cc",
+        "name": "Start",
+        "group": "ui_group_controls",
+        "order": 3,
+        "width": "4",
+        "height": "1",
+        "passthru": false,
+        "label": "▶️ DÉMARRER",
+        "tooltip": "Démarrer l'acquisition",
+        "color": "#ffffff",
+        "bgcolor": "#66cc66",
+        "className": "",
+        "icon": "play_arrow",
+        "payload": "start",
+        "payloadType": "str",
+        "topic": "epilepsy/command",
+        "topicType": "str",
+        "x": 310,
+        "y": 680,
+        "wires": [
+            [
+                "f7e1181d2a2ad5e8"
+            ]
+        ]
+    },
+    {
+        "id": "6fec77995487b9bf",
+        "type": "debug",
+        "z": "61f2634f4e3380cc",
+        "name": "Debug EEG",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 550,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "3f1b9f7439378c35",
+        "type": "debug",
+        "z": "61f2634f4e3380cc",
+        "name": "Debug Prediction",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 570,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "b5559ece466655a0",
+        "type": "debug",
+        "z": "61f2634f4e3380cc",
+        "name": "Debug Alert",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 540,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "dd7c6de3ccbd3408",
+        "type": "debug",
+        "z": "61f2634f4e3380cc",
+        "name": "Debug Metrics",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 560,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "475a9b0f27b9cee8",
+        "type": "debug",
+        "z": "61f2634f4e3380cc",
+        "name": "Debug Status",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 550,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "mqtt_broker",
+        "type": "mqtt-broker",
+        "name": "Raspberry Pi MQTT",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "nodered_epilepsy",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "ui_group_charts",
+        "type": "ui_group",
+        "name": "Graphiques",
+        "tab": "ui_tab_main",
+        "order": 4,
+        "disp": true,
+        "width": "12",
+        "collapse": false
+    },
+    {
+        "id": "ui_group_prediction",
+        "type": "ui_group",
+        "name": "Détection Temps Réel",
+        "tab": "ui_tab_main",
+        "order": 2,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_group_status",
+        "type": "ui_group",
+        "name": "État Système",
+        "tab": "ui_tab_main",
+        "order": 1,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_group_controls",
+        "type": "ui_group",
+        "name": "Contrôles",
+        "tab": "ui_tab_main",
+        "order": 5,
+        "disp": true,
+        "width": "12",
+        "collapse": false
+    },
+    {
+        "id": "ui_tab_main",
+        "type": "ui_tab",
+        "name": "Epilepsy Monitor",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "b3c7ef4924a5ee94",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-dashboard": "3.6.6"
+        }
+    }
+]
