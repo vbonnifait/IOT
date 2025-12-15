@@ -17,8 +17,8 @@
 // Note: NUM_FEATURES est défini dans scaler_params.h
 // #define NUM_FEATURES 194  <-- SUPPRIMÉ pour éviter le conflit
 
-#define SAMPLE_RATE 178
-#define WINDOW_SIZE 178
+#define SAMPLE_RATE 100
+#define WINDOW_SIZE 100
 #define OVERLAP_PERCENTAGE 50
 #define NUM_SEGMENTS 7
 
@@ -96,6 +96,12 @@ public:
      */
     void reset();
     void normalizeFeatures();
+
+    /**
+     * @brief Obtenir la dernière valeur filtrée
+     * @return Dernière valeur du signal filtré en microvolts
+     */
+    float getLastFilteredSample();
 
 private:
     // Buffers

@@ -6,7 +6,7 @@
  */
 
 #include "BITalinoEEG_Preprocessor.h"
-#include "C:\Users\mdore01\Downloads\Projet_IOT_platformIO-20251212T151153Z-1-001\Projet_IOT_platformIO\epilepsy-detection-platformio\include\scaler_params.h"
+#include "scaler_params.h"
 #include <cmath>
 #include <algorithm>
 
@@ -204,6 +204,12 @@ void BITalinoEEGPreprocessor::normalizeFeatures() {
     for (int i = 0; i < 194; i++) {
         normalized_features[i] = (features[i] - scaler_mean[i]) / scaler_scale[i];
     }
+}
+
+float BITalinoEEGPreprocessor::getLastFilteredSample() {
+    // Retourner la dernière valeur filtrée (index précédent)
+    int last_index = (buffer_index - 1 + WINDOW_SIZE) % WINDOW_SIZE;
+    return filtered_buffer[last_index];
 }
 
 // ============================================================================

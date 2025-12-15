@@ -42,12 +42,12 @@ const char *TOPIC_PREDICTION = "epilepsy/prediction"; // Résultats inférence
 const char *TOPIC_ALERT = "epilepsy/alert";           // Alertes crises
 const char *TOPIC_METRICS = "epilepsy/metrics";       // Métriques temps réel
 const char *TOPIC_COMMAND = "epilepsy/command";       // Commandes (reset, etc.)
-const char *TOPIC_RAW_EEG = "epilepsy/raw_eeg";       // Signal EEG brut (optionnel)
+const char *TOPIC_RAW_SIGNAL = "epilepsy/raw_signal"; // Signal EEG brut pour Node-RED
 void publishStatus(const char *state, const char *message);
 void publishPrediction(float prediction, bool is_seizure);
 void publishAlert(bool seizure_active, unsigned long duration_ms);
 void publishMetrics();
-void publishRawEEG(int raw_value, float microvolts);
+void publishRawSignal(int raw_value, float microvolts, float filtered);
 // ═══════════════════════════════════════════════════════════════════════
 //                    CONFIGURATION MATÉRIELLE
 // ═══════════════════════════════════════════════════════════════════════
@@ -61,8 +61,8 @@ void publishRawEEG(int raw_value, float microvolts);
 uint8_t BITALINO_MAC_ADDRESS[6] = {0x20, 0x17, 0x11, 0x20, 0x49, 0x95};
 
 // Configuration Signal Processing
-#define SAMPLING_RATE 178     // Hz (BITalino EEG)
-#define WINDOW_SIZE 178       // 1 seconde
+#define SAMPLING_RATE 100     // Hz (BITalino EEG - Canal A4)
+#define WINDOW_SIZE 100       // 1 seconde
 #define OVERLAP_PERCENTAGE 50 // 50% overlap
 #define OVERLAP_SIZE (WINDOW_SIZE * OVERLAP_PERCENTAGE / 100)
 
@@ -106,8 +106,8 @@ unsigned long last_heartbeat_time = 0;
 float current_prediction = 0.0f;
 int current_heart_rate = 0; // Optionnel si disponible sur BITalino
 
-// Buffer Bluetooth
-uint8_t bt_buffer[6];
+// Buffer Bluetooth (3 bytes pour 1 canal A4 @ 100Hz)
+uint8_t bt_buffer[3];
 int bt_index = 0;
 
 // Statistiques
@@ -123,34 +123,46 @@ typedef struct
 {
     uint8_t seq;
     uint8_t digital[4];
-    uint16_t analog[6];
+    uint16_t analog[1]; // Seulement A4
 } BITalinoFrame;
 
 bool parseBITalinoFrame(uint8_t *buffer, BITalinoFrame *frame)
 {
-    if (!(buffer[0] & 0x80))
-        return false;
+    // Structure trame 3 bytes (1 canal A4 @ 100Hz):
+    // Byte 0: [CRC:4 bits][SEQ:4 bits]
+    // Byte 1: [A4_MSB:8 bits]
+    // Byte 2: [A4_LSB:2 bits][I1:1][I2:1][O1:1][O2:1]
 
+    // Vérifier si c'est le début d'une trame (bit de sync non utilisé dans format 1 canal)
     frame->seq = buffer[0] & 0x0F;
-    frame->digital[0] = (buffer[0] >> 7) & 0x01;
-    frame->digital[1] = (buffer[0] >> 6) & 0x01;
-    frame->digital[2] = (buffer[0] >> 5) & 0x01;
-    frame->digital[3] = (buffer[0] >> 4) & 0x01;
 
-    // Canal A1 = EEG (10 bits)
-    frame->analog[0] = ((buffer[1] & 0x03) << 8) | buffer[2];
-    // Canal A2 = ECG optionnel (10 bits)
-    frame->analog[1] = ((buffer[3] & 0x0F) << 6) | (buffer[4] >> 2);
+    // CRC (optionnel, on peut l'ignorer pour simplifier)
+    // uint8_t crc = (buffer[0] >> 4) & 0x0F;
+
+    // Extraction canal A4 (10 bits)
+    // A4 = (Byte1 << 2) | (Byte2 >> 6)
+    frame->analog[0] = ((uint16_t)buffer[1] << 2) | (buffer[2] >> 6);
+    frame->analog[0] &= 0x3FF; // Masque 10 bits
+
+    // Extraction digital inputs (optionnel)
+    frame->digital[0] = (buffer[2] >> 3) & 0x01; // I1
+    frame->digital[1] = (buffer[2] >> 2) & 0x01; // I2
+    frame->digital[2] = (buffer[2] >> 1) & 0x01; // O1
+    frame->digital[3] = buffer[2] & 0x01;        // O2
 
     return true;
 }
 
 void startBITalinoAcquisition()
 {
-    uint8_t start_cmd[] = {0x01, 0x07}; // START @ 178 Hz
+    // Configuration BITalino pour 100 Hz avec canal A4 uniquement
+    // Format: {sample_rate_code, channel_mask}
+    // 0x03 = 100 Hz
+    // 0x08 = Canal A4 (bit 3)
+    uint8_t start_cmd[] = {0x03, 0x08}; // START @ 100 Hz, canal A4
     SerialBT.write(start_cmd, 2);
     delay(100);
-    Serial.println("✓ Acquisition BITalino démarrée (178 Hz)");
+    Serial.println("✓ Acquisition BITalino démarrée (100 Hz - Canal A4)");
 }
 
 void stopBITalinoAcquisition()
@@ -335,17 +347,18 @@ void publishMetrics()
     mqttClient.publish(TOPIC_METRICS, buffer);
 }
 
-void publishRawEEG(int raw_value, float microvolts)
+void publishRawSignal(int raw_value, float microvolts, float filtered)
 {
-    // Optionnel - pour visualiser signal brut dans Node-RED
-    StaticJsonDocument<128> doc;
+    // Publication du signal EEG brut pour visualisation Node-RED
+    StaticJsonDocument<192> doc;
     doc["timestamp"] = millis();
     doc["raw"] = raw_value;
     doc["microvolts"] = round(microvolts * 100) / 100.0f;
+    doc["filtered"] = round(filtered * 100) / 100.0f;
 
-    char buffer[128];
+    char buffer[192];
     serializeJson(doc, buffer);
-    mqttClient.publish(TOPIC_RAW_EEG, buffer);
+    mqttClient.publish(TOPIC_RAW_SIGNAL, buffer);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -524,115 +537,115 @@ void loop()
         }
     }
 
-    // Lire données Bluetooth BITalino
+    // Lire données Bluetooth BITalino (3 bytes par trame - Canal A4 @ 100Hz)
     while (SerialBT.available())
     {
         uint8_t byte_received = SerialBT.read();
 
-        if ((byte_received & 0x80) && bt_index == 0)
-        {
-            bt_buffer[bt_index++] = byte_received;
-        }
-        else if (bt_index > 0 && bt_index < 6)
-        {
-            bt_buffer[bt_index++] = byte_received;
+        // Remplir le buffer (3 bytes)
+        bt_buffer[bt_index++] = byte_received;
 
-            if (bt_index == 6)
+        // Quand on a 3 bytes complets, parser la trame
+        if (bt_index == 3)
+        {
+            BITalinoFrame frame;
+
+            if (parseBITalinoFrame(bt_buffer, &frame))
             {
-                BITalinoFrame frame;
+                int raw_value = frame.analog[0]; // Canal A4 (10 bits: 0-1023)
 
-                if (parseBITalinoFrame(bt_buffer, &frame))
+                // Conversion ADC → Microvolts
+                float microvolts = preprocessor.convertADCtoMicrovolts(raw_value);
+
+                // Ajouter l'échantillon au préprocesseur
+                if (preprocessor.addSample(raw_value))
                 {
-                    int raw_value = frame.analog[0];
+                    // Récupérer le signal filtré pour publication
+                    float filtered = preprocessor.getLastFilteredSample();
 
-                    // Optionnel: publier signal brut (attention au débit!)
-                    // publishRawEEG(raw_value, preprocessor.convertADCtoMicrovolts(raw_value));
+                    // Publier signal brut + filtré sur MQTT pour Node-RED
+                    publishRawSignal(raw_value, microvolts, filtered);
 
-                    if (preprocessor.addSample(raw_value))
+                    // Extraction des features (toutes les 1 seconde)
+                    if (preprocessor.extractFeatures())
                     {
-                        if (preprocessor.extractFeatures())
+                        preprocessor.normalizeFeatures();
+
+                        // Copie features vers input tensor
+                        float *normalized = preprocessor.getNormalizedFeatures();
+                        for (int i = 0; i < 194; i++)
                         {
-                            preprocessor.normalizeFeatures();
+                            input->data.f[i] = normalized[i];
+                        }
 
-                            // Copie features vers input tensor
-                            float *normalized = preprocessor.getNormalizedFeatures();
-                            for (int i = 0; i < 194; i++)
+                        // Inférence TensorFlow
+                        if (interpreter->Invoke() == kTfLiteOk)
+                        {
+                            float prediction = output->data.f[0];
+                            current_prediction = prediction;
+                            total_inferences++;
+                            samples_processed++;
+
+                            bool is_seizure = (prediction >= SEIZURE_THRESHOLD);
+
+                            // Publier prédiction
+                            publishPrediction(prediction, is_seizure);
+
+                            // Gestion alertes
+                            if (is_seizure)
                             {
-                                input->data.f[i] = normalized[i];
-                            }
-
-                            // Inférence TensorFlow
-                            if (interpreter->Invoke() == kTfLiteOk)
-                            {
-                                float prediction = output->data.f[0];
-                                current_prediction = prediction;
-                                total_inferences++;
-                                samples_processed++;
-
-                                bool is_seizure = (prediction >= SEIZURE_THRESHOLD);
-
-                                // Publier prédiction
-                                publishPrediction(prediction, is_seizure);
-
-                                // Gestion alertes
-                                if (is_seizure)
+                                if (!seizure_detected)
                                 {
-                                    if (!seizure_detected)
-                                    {
-                                        // NOUVELLE CRISE DÉTECTÉE
-                                        seizure_detected = true;
-                                        seizure_start_time = millis();
-                                        total_seizures++;
+                                    // NOUVELLE CRISE DÉTECTÉE
+                                    seizure_detected = true;
+                                    seizure_start_time = millis();
+                                    total_seizures++;
 
-                                        publishAlert(true, 0);
+                                    publishAlert(true, 0);
 
-                                        Serial.printf("\n⚠️⚠️⚠️ ALERTE CRISE DÉTECTÉE [%.1f%%] ⚠️⚠️⚠️\n",
-                                                      prediction * 100.0f);
-                                    }
+                                    Serial.printf("\n⚠️⚠️⚠️ ALERTE CRISE DÉTECTÉE [%.1f%%] ⚠️⚠️⚠️\n",
+                                                  prediction * 100.0f);
+                                }
 
-                                    // Crise en cours
+                                // Crise en cours
+                                unsigned long duration = millis() - seizure_start_time;
+
+                                if (samples_processed % 5 == 0)
+                                {
+                                    Serial.printf("⚠️  CRISE EN COURS [%.1f%%] - Durée: %lu s\n",
+                                                  prediction * 100.0f, duration / 1000);
+                                }
+                            }
+                            else
+                            {
+                                if (seizure_detected)
+                                {
+                                    // FIN DE CRISE
                                     unsigned long duration = millis() - seizure_start_time;
+                                    seizure_detected = false;
 
-                                    if (samples_processed % 5 == 0)
-                                    {
-                                        Serial.printf("⚠️  CRISE EN COURS [%.1f%%] - Durée: %lu s\n",
-                                                      prediction * 100.0f, duration / 1000);
-                                    }
+                                    publishAlert(false, duration);
+
+                                    Serial.printf("\n✓ Fin de crise - Durée totale: %lu s\n\n",
+                                                  duration / 1000);
                                 }
-                                else
+
+                                // État normal
+                                if (samples_processed % 20 == 0)
                                 {
-                                    if (seizure_detected)
-                                    {
-                                        // FIN DE CRISE
-                                        unsigned long duration = millis() - seizure_start_time;
-                                        seizure_detected = false;
-
-                                        publishAlert(false, duration);
-
-                                        Serial.printf("\n✓ Fin de crise - Durée totale: %lu s\n\n",
-                                                      duration / 1000);
-                                    }
-
-                                    // État normal
-                                    if (samples_processed % 20 == 0)
-                                    {
-                                        Serial.printf("✓ Normal [%.1f%%] - Inférences: %lu\n",
-                                                      (1.0f - prediction) * 100.0f, total_inferences);
-                                    }
+                                    Serial.printf("✓ Normal [%.1f%%] - Inférences: %lu\n",
+                                                  (1.0f - prediction) * 100.0f, total_inferences);
                                 }
-
-                                // Mise à jour LEDs
-                                updateLEDs(seizure_detected);
                             }
+
+                            // Mise à jour LEDs
+                            updateLEDs(seizure_detected);
                         }
                     }
                 }
-
-                bt_index = 0;
             }
-        }
-        else
-        {
+
+            // Reset buffer pour prochaine trame
             bt_index = 0;
         }
     }
