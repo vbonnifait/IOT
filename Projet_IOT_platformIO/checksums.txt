@@ -1,2 +1,0 @@
-a46931b2e26f36a3f0bb9a49b198c8dda05cd82d44c6a731f40f30ca545aa5fe  epilepsy-detection-platformio.tar.gz
-f4f137e871da37566b348a120c18456d33947878a22e078de6017a4e82d40a27  epilepsy-detection-platformio.zip
