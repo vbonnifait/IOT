@@ -13,17 +13,13 @@
 
 #include "BITalinoEEG_Preprocessor.h"
 #include "model_data.h"
-#include "scaler_params.h"
+#include "../../include/scaler_params.h"
 
 #include <TensorFlowLite_ESP32.h>
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-
-// ═══════════════════════════════════════════════════════════════════════
-//                    CONFIGURATION RÉSEAU
-// ═══════════════════════════════════════════════════════════════════════
 
 // WiFi Configuration (À MODIFIER)
 const char *WIFI_SSID = "iot";
@@ -48,9 +44,6 @@ void publishPrediction(float prediction, bool is_seizure);
 void publishAlert(bool seizure_active, unsigned long duration_ms);
 void publishMetrics();
 void publishRawEEG(int raw_value, float microvolts);
-// ═══════════════════════════════════════════════════════════════════════
-//                    CONFIGURATION MATÉRIELLE
-// ═══════════════════════════════════════════════════════════════════════
 
 // Configuration GPIO (SEULEMENT 2 LEDs)
 #define LED_YELLOW 2   // LED jaune (état normal / activité)

@@ -6,7 +6,7 @@
  */
 
 #include "BITalinoEEG_Preprocessor.h"
-#include "C:\Users\mdore01\Downloads\Projet_IOT_platformIO-20251212T151153Z-1-001\Projet_IOT_platformIO\epilepsy-detection-platformio\include\scaler_params.h"
+#include "../../include/scaler_params.h"
 #include <cmath>
 #include <algorithm>
 
