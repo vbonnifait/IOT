@@ -557,16 +557,26 @@ void loop()
                 // Conversion ADC → Microvolts
                 float microvolts = preprocessor.convertADCtoMicrovolts(raw_value);
 
-                // Ajouter l'échantillon au préprocesseur
-                if (preprocessor.addSample(raw_value))
+                // Ajouter l'échantillon au préprocesseur (retourne true si fenêtre complète)
+                bool window_ready = preprocessor.addSample(raw_value);
+
+                // Récupérer le signal filtré pour publication
+                float filtered = preprocessor.getLastFilteredSample();
+
+                // ✅ PUBLIER CHAQUE ÉCHANTILLON sur MQTT pour Node-RED (100 Hz)
+                publishRawSignal(raw_value, microvolts, filtered);
+
+                // Log périodique pour suivre l'activité (tous les 50 échantillons = 0.5s)
+                samples_processed++;
+                if (samples_processed % 50 == 0)
                 {
-                    // Récupérer le signal filtré pour publication
-                    float filtered = preprocessor.getLastFilteredSample();
+                    Serial.printf("📊 Échantillons reçus: %lu | ADC: %d | µV: %.2f | Filtré: %.2f\n",
+                                  samples_processed, raw_value, microvolts, filtered);
+                }
 
-                    // Publier signal brut + filtré sur MQTT pour Node-RED
-                    publishRawSignal(raw_value, microvolts, filtered);
-
-                    // Extraction des features (toutes les 1 seconde)
+                // Extraction des features et inférence (toutes les 1 seconde = 100 échantillons)
+                if (window_ready)
+                {
                     if (preprocessor.extractFeatures())
                     {
                         preprocessor.normalizeFeatures();
@@ -584,7 +594,6 @@ void loop()
                             float prediction = output->data.f[0];
                             current_prediction = prediction;
                             total_inferences++;
-                            samples_processed++;
 
                             bool is_seizure = (prediction >= SEIZURE_THRESHOLD);
 
@@ -610,11 +619,8 @@ void loop()
                                 // Crise en cours
                                 unsigned long duration = millis() - seizure_start_time;
 
-                                if (samples_processed % 5 == 0)
-                                {
-                                    Serial.printf("⚠️  CRISE EN COURS [%.1f%%] - Durée: %lu s\n",
-                                                  prediction * 100.0f, duration / 1000);
-                                }
+                                Serial.printf("⚠️  CRISE EN COURS [%.1f%%] - Durée: %lu s\n",
+                                              prediction * 100.0f, duration / 1000);
                             }
                             else
                             {
@@ -629,11 +635,10 @@ void loop()
                                     Serial.printf("\n✓ Fin de crise - Durée totale: %lu s\n\n",
                                                   duration / 1000);
                                 }
-
-                                // État normal
-                                if (samples_processed % 20 == 0)
+                                else
                                 {
-                                    Serial.printf("✓ Normal [%.1f%%] - Inférences: %lu\n",
+                                    // État normal - log toutes les secondes
+                                    Serial.printf("✓ Normal [%.1f%%] - Inférence #%lu\n",
                                                   (1.0f - prediction) * 100.0f, total_inferences);
                                 }
                             }
